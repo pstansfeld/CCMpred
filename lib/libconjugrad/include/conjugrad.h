@@ -17,8 +17,8 @@ typedef float conjugrad_float_t;
 #define F08  0.8f
 #define F1   1.0f
 #define F2   2.0f
-// #define FInf 0.0f/0.0f
-#define fsqrt sqrtf
+#define FInf 0.0f/0.0f
+// #define fsqrt sqrtf
 #define flog logf
 #define fexp expf
 #define fdlog __logf
