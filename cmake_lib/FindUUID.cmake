@@ -17,6 +17,6 @@ set(UUID_LIBRARIES ${UUID_LIBRARY})
 set(UUID_INCLUDE_DIRS ${UUID_INCLUDE_DIR})
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(LibUUID DEFAULT_MSG UUID_LIBRARY UUID_INCLUDE_DIR)
+find_package_handle_standard_args(LibUUID REQUIRED_VARS UUID_LIBRARY UUID_INCLUDE_DIR NAME_MISMATCHED)
 
 mark_as_advanced(UUID_INCLUDE_DIR UUID_LIBRARY)

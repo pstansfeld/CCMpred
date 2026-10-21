@@ -1,0 +1,29 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: install dependencies (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libjansson-dev libmsgpack-dev
+      - name: install dependencies (macos)
+        if: runner.os == 'macOS'
+        run: brew install msgpack jansson libomp
+      - name: build ccmpred
+        run: |
+          cmake -B tmp_build -DWITH_CUDA=OFF -DWITH_NATIVE=OFF
+          cmake --build tmp_build -j
+      - name: run example
+        run: |
+          tmp_build/bin/ccmpred -t 2 example/1atzA.aln 1atzA.mat
+          test $(wc -l < 1atzA.mat) = 75

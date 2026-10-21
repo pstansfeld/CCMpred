@@ -1,17 +1,14 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.18)
 include(CheckLanguage)
 
-project(libconjugrad)
+project(libconjugrad LANGUAGES C)
 set(LIBCONJUGRAD_MAJOR_VERSION 0)
 set(LIBCONJUGRAD_MINOR_VERSION 0)
 set(LIBCONJUGRAD_PATCH_VERSION 4)
 set(LIBCONJUGRAD_VERSION ${LIBCONJUGRAD_MAJOR_VERSION}.${LIBCONJUGRAD_MINOR_VERSION}.${LIBCONJUGRAD_PATCH_VERSION})
 
-if(CMAKE_VERSION VERSION_GREATER 2.8.11)
-	cmake_policy(SET CMP0022 OLD)
-endif(CMAKE_VERSION VERSION_GREATER 2.8.11)
-
-set(CMAKE_C_FLAGS "-std=c99 -O3 -g -lm")
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS ON)
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
 include_directories("${PROJECT_SOURCE_DIR}/include")
@@ -40,8 +37,12 @@ endif(WITH_SIMD STREQUAL ansi)
 set(BUILD_SHARED_LIBS OFF)
 
 if(WITH_CUDA)
-	find_package(CUDA)
 	check_language(CUDA)
+	if(NOT CMAKE_CUDA_COMPILER)
+		set(WITH_CUDA OFF)
+	endif()
+endif(WITH_CUDA)
+if(WITH_CUDA)
 	enable_language(CUDA)
 
 	#list(APPEND SOURCES src/conjugrad_cuda.c src/help_functions.cu src/conjugrad_kernels.cu)
@@ -51,6 +52,9 @@ if(WITH_CUDA)
 endif(WITH_CUDA)
 
 add_library(conjugrad ${SOURCES})
+if(UNIX)
+	target_link_libraries(conjugrad m)
+endif(UNIX)
 
 install(TARGETS conjugrad DESTINATION lib)
 

@@ -1,7 +1,7 @@
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required (VERSION 3.18)
 include(CheckLanguage)
 
-project (CCMpred)
+project (CCMpred LANGUAGES C)
 set(CCMPRED_MAJOR_VERSION 0)
 set(CCMPRED_MINOR_VERSION 3)
 set(CCMPRED_PATCH_VERSION 3)
@@ -14,7 +14,23 @@ endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake_lib/")
 
-set(CMAKE_C_FLAGS "-std=c99 -O3 -fno-strict-aliasing -g")
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS ON)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-strict-aliasing")
+set(CMAKE_C_FLAGS_RELEASE "-O3 -g")
+
+# tune for the build machine by default. Use cmake -DWITH_NATIVE=OFF for portable binaries
+option(WITH_NATIVE "Optimize for the host CPU (-march=native)" ON)
+if(WITH_NATIVE)
+	include(CheckCCompilerFlag)
+	check_c_compiler_flag("-march=native" HAVE_MARCH_NATIVE)
+	if(HAVE_MARCH_NATIVE)
+		add_compile_options($<$<COMPILE_LANGUAGE:C>:-march=native>)
+	endif()
+endif()
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
 include_directories("${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/lib/libconjugrad/include")
@@ -112,6 +128,12 @@ endif(OPENMP_FOUND)
 # Compile with CUDA if we can find the SDK
 if(WITH_CUDA)
 	check_language(CUDA)
+	if(NOT CMAKE_CUDA_COMPILER)
+		message(STATUS "No CUDA compiler found, building without CUDA support")
+		set(WITH_CUDA OFF)
+	endif()
+endif(WITH_CUDA)
+if(WITH_CUDA)
 	enable_language(CUDA)
 
 	add_definitions(-DCUDA)
@@ -124,11 +146,11 @@ endif(WITH_CUDA)
 add_executable(ccmpred ${SOURCES})
 
 if(OPENMP_FOUND)
-	target_link_libraries(ccmpred OpenMP::OpenMP_CXX)
+	target_link_libraries(ccmpred OpenMP::OpenMP_C)
 endif(OPENMP_FOUND)
 
 if(WITH_CUDA)
-	set_target_properties(ccmpred PROPERTIES CUDA_SEPERABLE_COMPILATION ON)
+	set_target_properties(ccmpred PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 endif(WITH_CUDA)
 
 # Compile with curses if available
