@@ -98,6 +98,7 @@ conjugrad_float_t evaluate_cpu_omp(
 		}
 	} // i
 
+	#pragma omp parallel for reduction(+:fx)
 	for (int i = 0; i < nrow; i++) {
 		conjugrad_float_t weight = ud->weights[i];
 		for (int k = 0; k < ncol; k++) {
@@ -121,12 +122,11 @@ conjugrad_float_t evaluate_cpu_omp(
 	}
 
 
-	for(int i = 0; i < nrow; i++) {
-		conjugrad_float_t weight = ud->weights[i];
-
-		#pragma omp parallel for
-		for(int k = 0; k < ncol; k++) {
-
+	// each k writes only to G2(*, k, *, *), so parallelize over k and loop over rows inside
+	#pragma omp parallel for schedule(dynamic)
+	for(int k = 0; k < ncol; k++) {
+		for(int i = 0; i < nrow; i++) {
+			conjugrad_float_t weight = ud->weights[i];
 			unsigned char xik = X(i,k);
 
 			for(int j = 0; j < ncol; j++) {
@@ -141,10 +141,11 @@ conjugrad_float_t evaluate_cpu_omp(
 				*pg++ += weight * *pp++;
 			}
 		}
-	} // i
+	} // k
 
 
 	// add transposed onto un-transposed
+	#pragma omp parallel for collapse(2)
 	for(int b = 0; b < N_ALPHA; b++) {
 		for(int k = 0; k < ncol; k++) {
 			for(int a = 0; a < N_ALPHA; a++) {
@@ -167,12 +168,13 @@ conjugrad_float_t evaluate_cpu_omp(
 	// regularization
 	conjugrad_float_t reg = F0; // 0.0
 
-	#pragma omp parallel for ordered reduction (+:reg)
+	#pragma omp parallel for reduction(+:reg)
 	for(int v = 0; v < nsingle; v++) {
 		reg += lambda_single * x[v] * x[v];
 		g[v] += F2 * lambda_single * x[v]; // F2 is 2.0
 	}
 
+	#pragma omp parallel for reduction(+:reg)
 	for(int v = nsingle_padded; v < nvar_padded; v++) {
 		reg += F05 * lambda_pair * x[v] * x[v];
 		g[v] += F2 * lambda_pair * x[v]; // F2 is 2.0
