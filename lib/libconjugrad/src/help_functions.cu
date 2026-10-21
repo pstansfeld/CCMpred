@@ -46,12 +46,14 @@ __device__ void warp_reduction(
 	volatile conjugrad_float_t *s_data,
 	int tid
 ) {
-	s_data[tid] += s_data[tid + 32];
-	s_data[tid] += s_data[tid + 16];
-	s_data[tid] += s_data[tid +  8];
-	s_data[tid] += s_data[tid +  4];
-	s_data[tid] += s_data[tid +  2];
-	s_data[tid] += s_data[tid +  1];
+	// explicit warp sync: required with independent thread scheduling (Volta+)
+	conjugrad_float_t v = s_data[tid];
+	v += s_data[tid + 32]; __syncwarp(); s_data[tid] = v; __syncwarp();
+	v += s_data[tid + 16]; __syncwarp(); s_data[tid] = v; __syncwarp();
+	v += s_data[tid + 8]; __syncwarp(); s_data[tid] = v; __syncwarp();
+	v += s_data[tid + 4]; __syncwarp(); s_data[tid] = v; __syncwarp();
+	v += s_data[tid + 2]; __syncwarp(); s_data[tid] = v; __syncwarp();
+	v += s_data[tid + 1]; __syncwarp(); s_data[tid] = v; __syncwarp();
 }
 
 #ifdef __cplusplus
