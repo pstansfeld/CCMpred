@@ -4,7 +4,10 @@
 
 #define TILE_DIM 32
 
-#define EDGE_MEM 6144
+#define EDGE_CHUNK 512   // sequences per pass of d_compute_edge_gradients
+#define EDGE_THREADS 128
+#define PC_SEQS 8        // sequences per block of d_compute_pc (8 x 21 accumulators fill 255 registers)
+#define PC_THREADS 128
 
 #define DPC(n,i) d_precompiled[(n) * ncol + (i)]
 #define DPCS(n,i) d_precompiled_sum[(n) * ncol + (i)]
@@ -38,71 +41,80 @@ __global__ void d_compute_pc(
 	const int ncol,
 	const int nrow) {
 
-	int i = blockIdx.x; // aka sequence
+	// a block holds PC_SEQS sequences and blockDim.x columns s; each thread keeps
+	// PC(i,a,s) of all PC_SEQS sequences in registers, so a coupling slice
+	// W(b,k,.,s) shared by several of them (same residue b at column k) is read
+	// from L1 after the first sequence rather than from L2 for each one
+	extern __shared__ unsigned char s_msa[];   // [PC_SEQS][ncol]
+	const int i0 = blockIdx.x * PC_SEQS;
+	const int s = blockIdx.y * blockDim.x + threadIdx.x;
 
-	while (i < nrow) {
-		conjugrad_float_t weight = d_weights[i];
-		int s = threadIdx.x; // aka column
+	for (int z = threadIdx.x; z < PC_SEQS * ncol; z += blockDim.x) {
+		int q = z / ncol;
+		s_msa[z] = i0 + q < nrow ? d_msa[(i0 + q) * ncol + z % ncol] : 0;
+	}
+	__syncthreads();
+	if (s >= ncol) {
+		return;
+	}
 
-		extern __shared__ unsigned char s_msa[];
-
-		// load i'th sequence of the msa to shared memory
-		while (s < ncol) {
-			// padding to avoid bank conficts while writing
-			s_msa[s * 4] = d_msa[i * ncol + s];
-			s += blockDim.x;
+	// initialize with single potentials, gap at 0
+	conjugrad_float_t pc[PC_SEQS][N_ALPHA];
+	#pragma unroll
+	for (int a = 0; a < N_ALPHA - 1; a++) {
+		conjugrad_float_t v = d_x1[a * ncol + s];
+		#pragma unroll
+		for (int q = 0; q < PC_SEQS; q++) {
+			pc[q][a] = v;
 		}
-		__syncthreads();
+	}
+	#pragma unroll
+	for (int q = 0; q < PC_SEQS; q++) {
+		pc[q][N_ALPHA - 1] = F0; // 0.0
+	}
 
-		s = threadIdx.x;
-
-		// local array for holding all a for PC(i,a,s)
-		conjugrad_float_t local_pc[N_ALPHA];
-
-		while (s < ncol) {
-			// initialize with single potentials
-			#pragma unroll 20
-			for (int a = 0; a < (N_ALPHA - 1); a++) {
-				local_pc[a] = d_x1[a * ncol + s];
-			}
-			// set gap to 0
-			local_pc[N_ALPHA - 1] = F0; // 0.0
-
-			// add sum_k (2 * w_sk(a,xik))
-			for (int k = 0; k < ncol; k++) {
-				#pragma unroll 21
-				for (int a = 0; a < N_ALPHA; a++) {
-					local_pc[a] += d_x2[((s_msa[k * 4] * ncol + k) * N_ALPHA_PAD + a) * ncol + s];
-				}
-			}
-
-			// compute sum_a
-			conjugrad_float_t acc = F0; // 0.0
-
-			#pragma unroll 21
+	// add sum_k w_sk(a, x_ik)
+	for (int k = 0; k < ncol; k++) {
+		#pragma unroll
+		for (int q = 0; q < PC_SEQS; q++) {
+			const conjugrad_float_t *w = &d_x2[(s_msa[q * ncol + k] * ncol + k) * N_ALPHA_PAD * ncol + s];
+			#pragma unroll
 			for (int a = 0; a < N_ALPHA; a++) {
-				acc += fdexp(local_pc[a]);
+				pc[q][a] += w[a * ncol];
 			}
-
-			acc = fdlog(acc);
-
-			//d_precompiled_sum[i * ncol + s] = weight * acc;
-			DPCS(i,s) = weight * acc;
-
-			// compute normalized
-			#pragma unroll 21
-			for (int a = 0; a < N_ALPHA; a++) {
-				//d_precompiled_norm[(i * N_ALPHA + a) * ncol + s] = weight * __expf(local_pc[a] - acc);
-				DPCN(i,a,s) = weight * fdexp(local_pc[a] - acc);
-			}
-
-			// write pc
-			//d_precompiled[i * ncol + s] = weight * local_pc[s_msa[s * 4]];
-			DPC(i,s) = weight * local_pc[s_msa[s * 4]];
-
-			s += blockDim.x;
 		}
-		i += gridDim.x;
+	}
+
+	#pragma unroll
+	for (int q = 0; q < PC_SEQS; q++) {
+		const int i = i0 + q;
+		if (i >= nrow) {
+			break;
+		}
+		const conjugrad_float_t weight = d_weights[i];
+
+		// log(sum_a exp(PC(i,a,s)))
+		conjugrad_float_t acc = F0; // 0.0
+		#pragma unroll
+		for (int a = 0; a < N_ALPHA; a++) {
+			acc += fdexp(pc[q][a]);
+		}
+		acc = fdlog(acc);
+		DPCS(i,s) = weight * acc;
+
+		#pragma unroll
+		for (int a = 0; a < N_ALPHA; a++) {
+			DPCN(i,a,s) = weight * fdexp(pc[q][a] - acc);
+		}
+
+		// select rather than pc[q][x]: a runtime index would move pc out of registers
+		const int xis = s_msa[q * ncol + s];
+		conjugrad_float_t pcx = F0;
+		#pragma unroll
+		for (int a = 0; a < N_ALPHA; a++) {
+			pcx = a == xis ? pc[q][a] : pcx;
+		}
+		DPC(i,s) = weight * pcx;
 	}
 }
 
@@ -284,30 +296,39 @@ __global__ void d_compute_edge_gradients(
 	int ncol,
 	int nrow
 ) {
-	int k = blockIdx.x;
-	
-	extern __shared__ unsigned char xk[];
-	
-	for (int stride = 0; stride < nrow; stride += EDGE_MEM) {
-		int start_seq = stride;
-		int end_seq = stride + EDGE_MEM < nrow ? stride + EDGE_MEM : nrow;
-		int seq = threadIdx.x + stride;
-		while (seq < end_seq) {
-			xk[seq - stride] = d_msa_transposed[k * nrow + seq];
-			seq += blockDim.x;
+	// d_g2[b,k,aj] += sum over sequences i with x_ik = b of PCN(i,aj).  A block
+	// covers column k and blockDim.x consecutive aj; each thread sums its own aj
+	// in shared memory (s_acc[b][tid]: no atomics, no bank conflicts) and writes
+	// d_g2 once, instead of reading and writing d_g2 once per sequence
+	extern __shared__ conjugrad_float_t s_acc[];   // [N_ALPHA][blockDim.x]
+	unsigned char *s_xk = (unsigned char *)&s_acc[N_ALPHA * blockDim.x]; // [EDGE_CHUNK]
+
+	const int tid = threadIdx.x;
+	const int k = blockIdx.y;
+	const int aj = blockIdx.x * blockDim.x + tid;
+
+	for (int b = 0; b < N_ALPHA; b++) {
+		s_acc[b * blockDim.x + tid] = F0; // 0.0
+	}
+
+	for (int i0 = 0; i0 < nrow; i0 += EDGE_CHUNK) {
+		const int n = nrow - i0 < EDGE_CHUNK ? nrow - i0 : EDGE_CHUNK;
+		__syncthreads();
+		for (int z = tid; z < n; z += blockDim.x) {
+			s_xk[z] = d_msa_transposed[k * nrow + i0 + z];
 		}
 		__syncthreads();
-
-		for (int i = start_seq; i < end_seq; i++) {
-			int aj = threadIdx.x;
-			while (aj < nvar) {
-				conjugrad_float_t dpcn_iaj = DPCNS(i,aj);
-
-				d_g2[(xk[i - stride] * ncol + k) * N_ALPHA_PAD * ncol + aj] += dpcn_iaj;
-				aj += blockDim.x;
+		if (aj < nvar) {
+			for (int z = 0; z < n; z++) {
+				s_acc[s_xk[z] * blockDim.x + tid] += DPCNS(i0 + z, aj);
 			}
 		}
-		__syncthreads();
+	}
+
+	if (aj < nvar) {
+		for (int b = 0; b < N_ALPHA; b++) {
+			d_g2[(b * ncol + k) * N_ALPHA_PAD * ncol + aj] += s_acc[b * blockDim.x + tid];
+		}
 	}
 }
 
@@ -571,11 +592,10 @@ void gpu_pc(
 	const int nrow
 ) {
 
-	const unsigned int nblocks = nrow < 65535 ? nrow : 65535;
-	const unsigned int nthreads = ncol < 256 ? ncol : 256;
-	size_t nbytes = ncol * 4;
+	dim3 nblocks((nrow + PC_SEQS - 1) / PC_SEQS, (ncol + PC_THREADS - 1) / PC_THREADS, 1);
+	size_t nbytes = PC_SEQS * ncol;
 
-	d_compute_pc<<<nblocks, nthreads, nbytes>>>(
+	d_compute_pc<<<nblocks, PC_THREADS, nbytes>>>(
 		d_msa,
 		d_x1,
 		d_x2,
@@ -650,11 +670,10 @@ void gpu_compute_edge_gradients(
 	int nrow
 ) {
 
-	int nblocks = ncol; // max is 65535, so np
-	int nthreads_first = 256;
-	int nbytes = nrow < EDGE_MEM ? nrow : EDGE_MEM;
+	dim3 nblocks((N_ALPHA * ncol + EDGE_THREADS - 1) / EDGE_THREADS, ncol, 1);
+	size_t nbytes = sizeof(conjugrad_float_t) * N_ALPHA * EDGE_THREADS + EDGE_CHUNK;
 
-	d_compute_edge_gradients<<<nblocks, nthreads_first, nbytes>>>(
+	d_compute_edge_gradients<<<nblocks, EDGE_THREADS, nbytes>>>(
 		d_msa_transposed,
 		d_precompiled_norm,
 		d_g2,
