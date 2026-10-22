@@ -27,3 +27,20 @@ jobs:
         run: |
           tmp_build/bin/ccmpred -t 2 example/1atzA.aln 1atzA.mat
           test $(wc -l < 1atzA.mat) = 75
+
+  # RHEL-family glibc (2.34) has no fsqrt in libm, unlike the Ubuntu runners
+  build-rocky:
+    runs-on: ubuntu-24.04
+    container: rockylinux:9
+    steps:
+      - uses: actions/checkout@v4
+      - name: install dependencies
+        run: dnf install -y gcc make cmake libuuid-devel ncurses-devel
+      - name: build ccmpred
+        run: |
+          cmake -B tmp_build -DWITH_CUDA=OFF -DWITH_NATIVE=OFF
+          cmake --build tmp_build -j
+      - name: run example
+        run: |
+          tmp_build/bin/ccmpred -t 2 example/1atzA.aln 1atzA.mat
+          test $(wc -l < 1atzA.mat) = 75

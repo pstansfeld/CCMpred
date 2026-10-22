@@ -60,7 +60,7 @@ int conjugrad_gpu(
 		goto conjugrad_exit;
 	}
 
-	alpha = F1 / fsqrt(gnorm); // F1 is 1.0
+	alpha = F1 / conjugrad_sqrt(gnorm); // F1 is 1.0
 
 	while (true) {
 		if (n_iter >= param->max_iterations) {
