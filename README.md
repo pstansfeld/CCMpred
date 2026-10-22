@@ -12,8 +12,8 @@ CCMpred is a C implementation of a Markov Random Field pseudo-likelihood maximiz
 To compile from source, you will need:
 
   * a recent C compiler (we suggest GCC 4.4 or later)
-  * [CMake](http://cmake.org/) 2.8 or later
-  * Optional: [NVIDIA CUDA SDK](https://developer.nvidia.com/cuda-downloads) 5.0 or later (if you want to compile for the GPU)
+  * [CMake](http://cmake.org/) 3.18 or later
+  * Optional: [NVIDIA CUDA SDK](https://developer.nvidia.com/cuda-downloads) 11.0 or later (if you want to compile for the GPU)
 
 To run CUDA-accelerated computations, you will need an NVIDIA GPU with a Compute Capability of 2.0 or later and the proprietary NVIDIA drivers installed. See the [NVIDIA CUDA GPU Overview](https://developer.nvidia.com/cuda-gpus) for details on your graphics card.
 
@@ -52,6 +52,8 @@ With the sourcecode ready, simply run cmake with the default settings and librar
 	make
 
 You should find the compiled version of CCMpred at `bin/ccmpred`. To check if the CUDA libraries were detected, you can run `ldd bin/ccmpred` to see if CUDA was linked with the program, or simply run a prediction and check the program's output.
+
+By default CCMpred is optimized for the build machine (`-march=native`). Use `cmake -DWITH_NATIVE=OFF .` to build a portable binary. CUDA is enabled automatically when a CUDA compiler is found; use `-DWITH_CUDA=OFF` to disable it.
 
 ## Useful scripts
 
