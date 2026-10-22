@@ -21,7 +21,9 @@ jobs:
         run: brew install msgpack jansson libomp
       - name: build ccmpred
         run: |
-          cmake -B tmp_build -DWITH_CUDA=OFF -DWITH_NATIVE=OFF
+          # Homebrew's libomp is keg-only: point CMake at it so the OpenMP code is built
+          if [ "$RUNNER_OS" = macOS ]; then extra="-DOpenMP_ROOT=$(brew --prefix libomp)"; fi
+          cmake -B tmp_build -DWITH_CUDA=OFF -DWITH_NATIVE=OFF $extra
           cmake --build tmp_build -j
       - name: run example
         run: |
