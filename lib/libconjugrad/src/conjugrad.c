@@ -43,7 +43,7 @@ int conjugrad(
 		goto conjugrad_exit;
 	}
 
-	alpha = F1/fsqrt(gnorm);
+	alpha = F1/conjugrad_sqrt(gnorm);
 
 	while(true) {
 		if(n_iter >= param->max_iterations) { 

@@ -18,7 +18,9 @@ typedef float conjugrad_float_t;
 #define F1   1.0f
 #define F2   2.0f
 #define FInf 0.0f/0.0f
-// #define fsqrt sqrtf
+// not fsqrt: newer C libraries (C23) declare a narrowing fsqrt(double) in math.h,
+// which a macro of that name clashes with; older ones (RHEL 9 glibc 2.34) lack it
+#define conjugrad_sqrt sqrtf
 #define flog logf
 #define fexp expf
 #define fdlog __logf
@@ -36,7 +38,7 @@ typedef double conjugrad_float_t;
 #define F1   1.0
 #define F2   2.0
 #define FInf 0.0/0.0
-#define fsqrt sqrt
+#define conjugrad_sqrt sqrt
 #define flog log
 #define fexp exp
 #define fdlog log
