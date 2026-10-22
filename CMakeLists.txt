@@ -104,6 +104,7 @@ if(WITH_JANSSON)
 endif(WITH_JANSSON)
 if(LIBJANSSON_FOUND)
 	add_definitions("-DJANSSON")
+	include_directories(${JANSSON_INCLUDE_DIRS})
 endif(LIBJANSSON_FOUND)
 
 
@@ -113,6 +114,7 @@ if(WITH_UUID)
 endif(WITH_UUID)
 if(LIBUUID_FOUND)
 	add_definitions("-DUUID")
+	include_directories(${UUID_INCLUDE_DIRS})
 endif(LIBUUID_FOUND)
 
 # Compile with OpenMP if available
